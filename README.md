@@ -111,5 +111,91 @@ findTeam 이라는 변수에 teams 라는 배열에서 f => f.id 객체의 id �
 만약 json 을 전달하기 전에, find로 찾는 id가 없으면 findTeam 에 아무것도 안 담길 것이다. 그렇다는 것은 findTeam 이 undefined 라는 뜻이다. 따라서 if문을 사용한다.
 또한 예외를 터뜨린다는 것은, http 상태 코드를 임의로 실패하게 한다는 것이다. 이것은 status 메소드를 사용할 수 있다. 여기에 실패 코드인 404를 작성해 주고, 어떤 메세지를 전달할 지 작성하면 된다. 
 <img width="626" alt="image" src="https://github.com/user-attachments/assets/88d78e48-8c85-4a93-bff3-47b6075503c3" /><br />
-아까와는 다르게 상태코드가 404로 뜨고, 작성한 실패 메세지도 전달이 되는 것을 확인할 수 있다.
+아까와는 다르게 상태코드가 404로 뜨고, 작성한 실패 메세지도 전달이 되는 것을 확인할 수 있다. 그러니까 상태 코드를 임의로 작성하지 않고 그냥 send 로 보내면 200이 뜨지만, status 라는 메소드를 통해 고의로 예외를 터뜨려 처리를 하는 것이다.
+
+# ✅ ``==`` vs ``===``
+```
+if (1 == "1") {
+  console.log("같다");
+} else {
+  console.log("같지 않다");
+}
+```
+위 코드를 실행하면 콘솔창에 어떤 문구가 찍힐까? 답은 '같다' 이다. 그렇다면 ``==``를 ``===``로 바꾸면? '같지 않다' 가 찍힌다.
+``==``와 ``===``의 차이는 '자료형'을 판단하는 차이이다. ``==``는 자료형 상관 없이 오로지 값만 비교한다. 하지만 ``===``은 값 뿐만 아니라 자료형까지 비교하여 연산한다.
+
+```
+app.get("/teams/:id", (req, res) => {
+  let id = req.params.id;
+  var findTeam = teams.find((f) => f.id == id);
+
+  if (findTeam) {
+    res.json(findTeam);
+  } else {
+    res.status(404).send("찾으시는 팀이 존재하지 않습니다.");
+  }
+});
+```
+이 코드를 보면, req.params로 받아온 url의 id 값은 사실 문자열이다. 그래서 저번 시간에 parseInt로 정수 변환을 해주었다. ``==`` 는, 자료형이 아닌 값만 비교하기 때문에 해당 코드가 정상적으로 돌아가는 것이다.
+
+
+# ✅ 예외 고도화
+Channel API 설계에서 예외에 대한 코드를 고도화 시켜보자.
+
+## 💬 Map은 undefined가 아니다
+원래 코드는 값이 있으면 전달하고, 없으면 빈 값을 전달했다. 예외를 터뜨려서 처리를 해보자.
+```
+app.get("/channels", (req, res) => {
+  var channels = {};
+
+  if (db) {
+    db.forEach((value, key) => {
+      channels[key] = value;
+    });
+    res.json(channels);
+  } else {
+    res.status(404).json({
+      message: "조회할 채널이 없습니다.",
+    });
+  }
+});
+```
+db에 값이 있으면 전달하고, 예외를 터뜨려 404 상태 코드가 뜬다면 조회할 채널이 없다는 메세지를 전달한다. 그런데 해당 코드를 포스트맨에서 get 요청하면, 에러 메세지가 아니라 빈 ``{}``가 뜬다. 왜일까?
+채널을 전체 삭제한 뒤 콘솔창에 db를 찍어보면, ``Map(0)``이 뜬다. 이건 db가 아예 존재하지 않는 게 아니라, db가 있긴 있는데 안에 들어있는 요소 개수가 0일 뿐이다. 때문에 항상 true를 반환한다. 따라서 db의 객체 존재 여부가 아니라, db의 size로 비교하는 코드를 써야 한다.
+<img width="618" alt="image" src="https://github.com/user-attachments/assets/3ecc059c-8587-4a8c-8819-0cb984cfd55f" /><br />
+예외 처리에 맞는 에러 메세지가 잘 전달되는 것을 확인할 수 있다.
+
+## 💬 POST에 대한 예외
+반대로 등록하는 메서드인 POST의 예외는 res body에 전달되는 값이 아무것도 없다면? 이라고 생각할 수 있다. 값을 안 넣고 요청하면 어떻게 되는지 확인해보자.
+<img width="621" alt="image" src="https://github.com/user-attachments/assets/817cbcb4-3a88-456e-a86a-f092bb96eef2" /><br />
+들어가야 할 데이터가 들어가지 않았는데 200 OK가 뜨지만, 이것은 예외 처리를 해줘야 하는 상황이다.
+```
+app.use(express.json());
+app.post("/channels", (req, res) => {
+  const channelTitle = req.body.channelTitle;
+  if (channelTitle) {
+    db.set(id++, req.body);
+    res.status(201).json({
+      message: `신규 채널 '${
+        db.get(id - 1).channelTitle
+      }' 이(가) 개설되었습니다.`,
+    });
+  } else {
+    res.status(400).json({
+      message: "채널명은 필수입니다.",
+    });
+  }
+});
+```
+먼저 set하기 전에, req body 값에 channelTitle이 있는지 먼저 확인을 해줘야 한다. 있으면 정상적으로 등록해주면 된다. 없다면 예외를 터뜨려 처리해준다. 그런데 404는 서버에서 찾아봤는데 전달해 줄 리소스 페이지가 없다는 것이었다. 이 때는 400, '서버가 요청의 구문을 인식하지 못함' 이라는 뜻을 가진 상태 코드를 사용해 줄 수 있다. 즉 400은, 요청한 연산(처리)을 할 때 필요한 데이터(req)가 덜 왔을 때 뿌려지는 상태 코드이다.
+<img width="623" alt="image" src="https://github.com/user-attachments/assets/092dcaca-51f2-493a-a94f-9f246e493566" /><br />
+
+또 상태 코드에서, 200은 조회,수정,삭제 성공 시의 상태 코드이다. 그런데 포스트맨에서 POST 요청을 하면 200이 뜬다. 등록 성공의 상태 코드는 201이기 때문에, 이 부분의 상태 코드도 201로 고쳐줄 수 있다.
+<img width="619" alt="image" src="https://github.com/user-attachments/assets/d1243ca6-9107-4105-8760-9232c7fddc5f" /><br />
+
+
+
+
+
+
 
